@@ -478,6 +478,7 @@
     var reconnectAttempts = 0;
     var wakeLock = null;
     var isInCall = false;
+    var speechRecognition = null;  // SpeechRecognition instance
 
     // -- Wake Lock -------------------------------------------
     async function requestWakeLock() {
@@ -657,6 +658,7 @@
         document.getElementById('videoContainer').classList.add('in-call');
         createPeerConnection();
         startAudioRecording();
+        startSpeechRecognition();
         startTimer();
       }
 
@@ -703,6 +705,7 @@
       document.getElementById('videoContainer').classList.remove('in-call');
       setStatus('Connected');
       stopTimer();
+      stopSpeechRecognition();
       stopAndUploadRecording();
     }
 
@@ -746,6 +749,83 @@
       };
       audioRecorder.stop();
     }
+
+    // -- Speech Recognition (client transcript capture) ------
+    /**
+     * Start browser SpeechRecognition to capture client's speech.
+     * Sends final results to server via WebSocket as 'transcript' messages.
+     * Lightweight: only processes final results, no interim.
+     */
+    function startSpeechRecognition() {
+      var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        console.warn('[Speech] SpeechRecognition not supported in this browser');
+        return;
+      }
+      try {
+        speechRecognition = new SpeechRecognition();
+        speechRecognition.continuous = true;
+        speechRecognition.interimResults = false; // Only final results — saves CPU
+        speechRecognition.lang = 'en-US';
+        speechRecognition.maxAlternatives = 1;
+
+        speechRecognition.onresult = function(event) {
+          for (var i = event.resultIndex; i < event.results.length; i++) {
+            if (event.results[i].isFinal) {
+              var text = event.results[i][0].transcript.trim();
+              if (text && ws && ws.readyState === 1) {
+                ws.send(JSON.stringify({
+                  type: 'transcript',
+                  text: text,
+                  speaker: CLIENT_NAME,
+                  isFinal: true
+                }));
+                console.log('[Speech] Sent:', text.substring(0, 50));
+              }
+            }
+          }
+        };
+
+        /** Auto-restart on error (network glitch, timeout, etc.) */
+        speechRecognition.onerror = function(event) {
+          if (event.error === 'no-speech') return; // Normal — just silence
+          console.warn('[Speech] Error:', event.error);
+          if (isInCall && event.error !== 'not-allowed') {
+            setTimeout(function() {
+              if (isInCall) startSpeechRecognition();
+            }, 1000);
+          }
+        };
+
+        /** Auto-restart when recognition ends (browser stops after silence) */
+        speechRecognition.onend = function() {
+          if (isInCall) {
+            console.log('[Speech] Restarting...');
+            setTimeout(function() {
+              if (isInCall) {
+                try { speechRecognition.start(); }
+                catch(e) { console.warn('[Speech] Restart failed:', e.message); }
+              }
+            }, 500);
+          }
+        };
+
+        speechRecognition.start();
+        console.log('[Speech] Recognition started');
+      } catch (err) {
+        console.error('[Speech] Failed to start:', err);
+      }
+    }
+
+    /** Stop speech recognition when call ends */
+    function stopSpeechRecognition() {
+      if (speechRecognition) {
+        try { speechRecognition.stop(); } catch(e) {}
+        speechRecognition = null;
+        console.log('[Speech] Recognition stopped');
+      }
+    }
+
 
     // -- Timer -----------------------------------------------
     function startTimer() {
