@@ -219,7 +219,7 @@ const requestHandler = (req, res) => {
     res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream' });
     res.end(data);
   });
-});
+};
 
 function serveFile(res, filename) {
   fs.readFile(path.join(__dirname, 'public', filename), (err, data) => {
