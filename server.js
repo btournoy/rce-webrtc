@@ -9,6 +9,7 @@
  */
 
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
@@ -20,6 +21,9 @@ const TURN_PORT = process.env.TURN_PORT || 3478;
 const TURN_SECRET = process.env.TURN_SECRET || 'rce-webrtc-shared-secret';
 const PUBLIC_IP = process.env.PUBLIC_IP || ''; // Set on VPS for TURN
 const RECORDINGS_DIR = path.join(__dirname, 'recordings');
+const SSL_DIR = process.env.SSL_DIR || '/etc/ssl/rce-webrtc';
+const SSL_KEY = path.join(SSL_DIR, 'privkey.pem');
+const SSL_CERT = path.join(SSL_DIR, 'fullchain.pem');
 
 // Ensure recordings directory exists
 if (!fs.existsSync(RECORDINGS_DIR)) fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
@@ -129,8 +133,12 @@ function broadcastClientList() {
   }
 }
 
-// ── HTTP server ─────────────────────────────────────
-const server = http.createServer((req, res) => {
+// ── HTTP/HTTPS server ───────────────────────────────
+/**
+ * Create the HTTP handler. If SSL certs exist, we serve HTTPS (required
+ * for getUserMedia on non-localhost). Otherwise fallback to plain HTTP.
+ */
+const requestHandler = (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   if (url.pathname.startsWith('/api/')) {
@@ -541,14 +549,48 @@ wss.on('connection', (ws) => {
   });
 });
 
+// ── Create server (HTTPS if certs exist, HTTP fallback) ─
+let server;
+let protocol = 'http';
+try {
+  if (fs.existsSync(SSL_KEY) && fs.existsSync(SSL_CERT)) {
+    const sslOptions = {
+      key: fs.readFileSync(SSL_KEY),
+      cert: fs.readFileSync(SSL_CERT),
+    };
+    server = https.createServer(sslOptions, requestHandler);
+    protocol = 'https';
+    console.log('[SSL] HTTPS enabled with certs from ' + SSL_DIR);
+
+    // Also start HTTP server that redirects to HTTPS
+    const httpRedirect = http.createServer((req, res) => {
+      const host = req.headers.host ? req.headers.host.split(':')[0] : 'localhost';
+      res.writeHead(301, { Location: `https://${host}:${PORT}${req.url}` });
+      res.end();
+    });
+    httpRedirect.listen(80, '0.0.0.0', () => {
+      console.log('[SSL] HTTP→HTTPS redirect on :80');
+    });
+  } else {
+    server = http.createServer(requestHandler);
+    console.log('[SSL] No certs found at ' + SSL_DIR + ' — using HTTP (camera/mic may not work)');
+  }
+} catch (e) {
+  server = http.createServer(requestHandler);
+  console.error('[SSL] Error loading certs:', e.message, '— falling back to HTTP');
+}
+
 server.listen(PORT, '0.0.0.0', () => {
   const ips = getLocalIPs();
-  console.log(`\n⚡ WebRTC Chat by RCE — running on http://localhost:${PORT}`);
-  console.log(`\n📺 Tablet/Client:   http://localhost:${PORT}/client`);
-  console.log(`📡 Staff Dashboard: http://localhost:${PORT}`);
+  console.log(`\n⚡ WebRTC Chat by RCE — running on ${protocol}://localhost:${PORT}`);
+  console.log(`\n📺 Tablet/Client:   ${protocol}://localhost:${PORT}/client`);
+  console.log(`📡 Staff Dashboard: ${protocol}://localhost:${PORT}`);
   if (ips.length > 0) {
-    console.log(`\n🌐 LAN access: ${ips.map(ip => `http://${ip}:${PORT}`).join(', ')}`);
+    console.log(`\n🌐 LAN access: ${ips.map(ip => `${protocol}://${ip}:${PORT}`).join(', ')}`);
   }
-  console.log(`\n📡 Media relay: WebSocket (built-in, works behind any NAT)`);
+  if (PUBLIC_IP) {
+    console.log(`\n🌍 Public: ${protocol}://${PUBLIC_IP}:${PORT}`);
+  }
+  console.log(`\n📡 TURN: turn:${PUBLIC_IP || 'localhost'}:${TURN_PORT}`);
   console.log(`🔑 TURN secret: ${TURN_SECRET}\n`);
 });
