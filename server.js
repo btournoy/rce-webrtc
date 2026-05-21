@@ -229,6 +229,37 @@ function serveFile(res, filename) {
   });
 }
 
+// ── Create server (HTTPS if certs exist, HTTP fallback) ─
+let server;
+let protocol = 'http';
+try {
+  if (fs.existsSync(SSL_KEY) && fs.existsSync(SSL_CERT)) {
+    const sslOptions = {
+      key: fs.readFileSync(SSL_KEY),
+      cert: fs.readFileSync(SSL_CERT),
+    };
+    server = https.createServer(sslOptions, requestHandler);
+    protocol = 'https';
+    console.log('[SSL] HTTPS enabled with certs from ' + SSL_DIR);
+
+    // Also start HTTP server that redirects to HTTPS
+    const httpRedirect = http.createServer((req, res) => {
+      const host = req.headers.host ? req.headers.host.split(':')[0] : 'localhost';
+      res.writeHead(301, { Location: `https://${host}:${PORT}${req.url}` });
+      res.end();
+    });
+    httpRedirect.listen(80, '0.0.0.0', () => {
+      console.log('[SSL] HTTP→HTTPS redirect on :80');
+    });
+  } else {
+    server = http.createServer(requestHandler);
+    console.log('[SSL] No certs found at ' + SSL_DIR + ' — using HTTP (camera/mic may not work)');
+  }
+} catch (e) {
+  server = http.createServer(requestHandler);
+  console.error('[SSL] Error loading certs:', e.message, '— falling back to HTTP');
+}
+
 // ── WebSocket signaling + media relay ───────────────
 const wss = new WebSocketServer({ server, maxPayload: 1024 * 1024 }); // 1MB max for video chunks
 
@@ -549,36 +580,6 @@ wss.on('connection', (ws) => {
   });
 });
 
-// ── Create server (HTTPS if certs exist, HTTP fallback) ─
-let server;
-let protocol = 'http';
-try {
-  if (fs.existsSync(SSL_KEY) && fs.existsSync(SSL_CERT)) {
-    const sslOptions = {
-      key: fs.readFileSync(SSL_KEY),
-      cert: fs.readFileSync(SSL_CERT),
-    };
-    server = https.createServer(sslOptions, requestHandler);
-    protocol = 'https';
-    console.log('[SSL] HTTPS enabled with certs from ' + SSL_DIR);
-
-    // Also start HTTP server that redirects to HTTPS
-    const httpRedirect = http.createServer((req, res) => {
-      const host = req.headers.host ? req.headers.host.split(':')[0] : 'localhost';
-      res.writeHead(301, { Location: `https://${host}:${PORT}${req.url}` });
-      res.end();
-    });
-    httpRedirect.listen(80, '0.0.0.0', () => {
-      console.log('[SSL] HTTP→HTTPS redirect on :80');
-    });
-  } else {
-    server = http.createServer(requestHandler);
-    console.log('[SSL] No certs found at ' + SSL_DIR + ' — using HTTP (camera/mic may not work)');
-  }
-} catch (e) {
-  server = http.createServer(requestHandler);
-  console.error('[SSL] Error loading certs:', e.message, '— falling back to HTTP');
-}
 
 server.listen(PORT, '0.0.0.0', () => {
   const ips = getLocalIPs();
