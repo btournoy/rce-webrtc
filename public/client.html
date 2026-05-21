@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#08080e">
+  <title>WebRTC Chat by RCE</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #08080e;
+      --surface: #12121e;
+      --surface-2: #1a1a2e;
+      --border: #2a2a42;
+      --text: #e8e8f0;
+      --text-muted: #7878a0;
+      --primary: #6366f1;
+      --primary-glow: rgba(99, 102, 241, 0.25);
+      --green: #22c55e;
+      --green-glow: rgba(34, 197, 94, 0.3);
+      --red: #ef4444;
+      --red-glow: rgba(239, 68, 68, 0.25);
+      --radius: 16px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    /* ── Full-screen video container ──────────── */
+    .video-container {
+      position: relative;
+      width: 100%;
+      height: 100vh;
+      height: 100dvh;
+      background: #000;
+    }
+
+    #remoteVideo {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: #000;
+    }
+
+    #localVideo {
+      position: absolute;
+      bottom: 100px;
+      right: 20px;
+      width: 180px;
+      height: 135px;
+      object-fit: cover;
+      border-radius: 12px;
+      border: 2px solid rgba(255,255,255,0.15);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+      z-index: 10;
+    }
+
+    /* ── Controls bar ────────────────────────── */
+    .controls {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      padding: 1.25rem;
+      background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%);
+      z-index: 20;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+    }
+
+    .video-container.in-call .controls {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .ctrl-btn {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      background: rgba(255,255,255,0.12);
+      backdrop-filter: blur(8px);
+      color: white;
+    }
+
+    .ctrl-btn:active { transform: scale(0.92); }
+    .ctrl-btn svg { width: 24px; height: 24px; }
+
+    .ctrl-btn.active {
+      background: rgba(239, 68, 68, 0.3);
+      color: var(--red);
+    }
+
+    .ctrl-btn.hang-up {
+      width: 68px;
+      height: 56px;
+      border-radius: 999px;
+      background: var(--red);
+      color: white;
+      box-shadow: 0 4px 20px var(--red-glow);
+    }
+
+    /* ── Waiting / Ready screen ──────────────── */
+    .ready-screen {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      z-index: 15;
+      transition: opacity 0.5s ease;
+      text-align: center;
+      padding: 2rem;
+    }
+
+    .ready-screen.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* Animated background */
+    .ready-screen::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 30% 30%, rgba(99, 102, 241, 0.06) 0%, transparent 60%),
+        radial-gradient(ellipse at 70% 70%, rgba(34, 197, 94, 0.04) 0%, transparent 60%);
+      animation: bgShift 15s ease-in-out infinite alternate;
+    }
+
+    @keyframes bgShift {
+      0% { opacity: 0.6; }
+      100% { opacity: 1; }
+    }
+
+    .ready-content {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Pulsing ring animation */
+    .pulse-ring {
+      position: relative;
+      width: 120px;
+      height: 120px;
+      margin: 0 auto 2.5rem;
+    }
+
+    .pulse-ring::before,
+    .pulse-ring::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 2px solid var(--green);
+      animation: ringPulse 3s ease-in-out infinite;
+    }
+
+    .pulse-ring::after {
+      animation-delay: 1.5s;
+    }
+
+    @keyframes ringPulse {
+      0% { transform: scale(0.8); opacity: 0.6; }
+      50% { transform: scale(1.2); opacity: 0; }
+      100% { transform: scale(0.8); opacity: 0; }
+    }
+
+    .pulse-ring .inner {
+      position: absolute;
+      inset: 20px;
+      background: linear-gradient(135deg, var(--primary), #8b5cf6);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 32px var(--primary-glow);
+    }
+
+    .pulse-ring .inner svg {
+      width: 40px;
+      height: 40px;
+      color: white;
+    }
+
+    .ready-title {
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      letter-spacing: -0.02em;
+    }
+
+    .ready-sub {
+      color: var(--text-muted);
+      font-size: 1rem;
+      margin-bottom: 0.75rem;
+    }
+
+    /* Status pill */
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: rgba(34, 197, 94, 0.1);
+      border: 1px solid rgba(34, 197, 94, 0.25);
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--green);
+      margin-top: 1rem;
+    }
+
+    .status-pill .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 12px var(--green-glow);
+      animation: dotPulse 2s ease-in-out infinite;
+    }
+
+    @keyframes dotPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    .status-pill.connecting {
+      background: rgba(234, 179, 8, 0.1);
+      border-color: rgba(234, 179, 8, 0.25);
+      color: #eab308;
+    }
+
+    .status-pill.connecting .dot {
+      background: #eab308;
+      box-shadow: 0 0 12px rgba(234, 179, 8, 0.3);
+    }
+
+    /* Branding */
+    .brand {
+      position: absolute;
+      bottom: 2rem;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.25rem;
+      z-index: 1;
+    }
+
+    .brand-name {
+      font-size: 0.9rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+
+    .brand-sub {
+      font-size: 0.65rem;
+      color: rgba(120, 120, 160, 0.5);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    /* In-call top bar */
+    .top-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 1.5rem;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%);
+      z-index: 20;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+    }
+
+    .video-container.in-call .top-bar {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .call-info {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .call-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.35rem 0.7rem;
+      background: rgba(34, 197, 94, 0.15);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--green);
+    }
+
+    .call-badge .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: dotPulse 2s ease-in-out infinite;
+    }
+
+    .call-timer {
+      font-size: 0.85rem;
+      color: rgba(255,255,255,0.7);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .top-brand {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: rgba(255,255,255,0.5);
+      letter-spacing: 0.05em;
+    }
+
+    /* ── Responsive ──────────────────────────── */
+    @media (max-width: 768px) {
+      #localVideo {
+        width: 130px;
+        height: 97px;
+        bottom: 88px;
+        right: 12px;
+      }
+      .controls { gap: 0.75rem; padding: 1rem; }
+      .ctrl-btn { width: 50px; height: 50px; }
+      .ctrl-btn.hang-up { width: 60px; height: 50px; }
+      .ready-title { font-size: 1.3rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="video-container" id="videoContainer">
+    <video id="remoteVideo" autoplay playsinline></video>
+    <video id="localVideo" autoplay playsinline muted></video>
+
+    <!-- Ready / Waiting screen -->
+    <div class="ready-screen" id="readyScreen">
+      <div class="ready-content">
+        <div class="pulse-ring">
+          <div class="inner">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="23 7 16 12 23 17 23 7"/>
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+            </svg>
+          </div>
+        </div>
+        <div class="ready-title">Ready for a call</div>
+        <div class="ready-sub">Waiting for someone to connect…</div>
+        <div class="status-pill" id="statusPill">
+          <span class="dot"></span>
+          <span id="statusText">Connected</span>
+        </div>
+      </div>
+      <div class="brand">
+        <div class="brand-name">WebRTC Chat by RCE</div>
+        <div class="brand-sub">Re-Circuit Electronics</div>
+      </div>
+    </div>
+
+    <!-- Top bar (visible during call) -->
+    <div class="top-bar">
+      <div class="call-info">
+        <div class="call-badge">
+          <span class="dot"></span>
+          Active Call
+        </div>
+        <span class="call-timer" id="callTimer">00:00</span>
+      </div>
+      <div class="top-brand">WebRTC Chat by RCE</div>
+    </div>
+
+    <!-- Controls (visible during call) -->
+    <div class="controls">
+      <button class="ctrl-btn" id="micBtn" onclick="toggleMic()" title="Microphone">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+          <line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+      </button>
+
+      <button class="ctrl-btn" id="camBtn" onclick="toggleCam()" title="Camera">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="23 7 16 12 23 17 23 7"/>
+          <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+        </svg>
+      </button>
+
+      <button class="ctrl-btn hang-up" onclick="endCall()" title="End Call">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/>
+          <line x1="1" y1="1" x2="23" y2="23"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * ======================================================
+     *  CLIENT (TABLET) - WebRTC Chat by RCE
+     * ======================================================
+     *
+     * Architecture: True WebRTC via RTCPeerConnection
+     *  - Signaling: WebSocket (offer/answer/ICE candidates)
+     *  - Media: WebRTC peer-to-peer (with coturn TURN relay on VPS)
+     *  - Recording: Client-side audio capture, uploaded post-call
+     *  - Wake lock keeps tablet screen on
+     *  - Auto-reconnect on disconnect
+     */
+
+    // -- Config ----------------------------------------------
+    var pathParts = window.location.pathname.split('/');
+    var ROOM_ID = pathParts[2] || localStorage.getItem('clientRoomId') || generateId();
+    localStorage.setItem('clientRoomId', ROOM_ID);
+
+    function generateId() {
+      var chars = '0123456789abcdef', id = '';
+      for (var i = 0; i < 6; i++) id += chars[Math.floor(Math.random() * 16)];
+      return id;
+    }
+
+    var urlParams = new URLSearchParams(window.location.search);
+    var CLIENT_NAME = urlParams.get('name') || localStorage.getItem('clientName') || 'Client ' + ROOM_ID;
+    localStorage.setItem('clientName', CLIENT_NAME);
+
+    // -- State -----------------------------------------------
+    var ws = null;
+    var pc = null;               // RTCPeerConnection
+    var localStream = null;
+    var audioRecorder = null;
+    var audioChunks = [];
+    var iceServers = [];
+    var micEnabled = true;
+    var camEnabled = true;
+    var callStartTime = null;
+    var timerInterval = null;
+    var reconnectAttempts = 0;
+    var wakeLock = null;
+    var isInCall = false;
+
+    // -- Wake Lock -------------------------------------------
+    async function requestWakeLock() {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLock = await navigator.wakeLock.request('screen');
+          wakeLock.addEventListener('release', function() {
+            setTimeout(requestWakeLock, 1000);
+          });
+        }
+      } catch (e) { setTimeout(requestWakeLock, 5000); }
+    }
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'visible') requestWakeLock();
+    });
+
+    // -- Local Media -----------------------------------------
+    async function initMedia() {
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24 }, facingMode: 'user' },
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
+        document.getElementById('localVideo').srcObject = localStream;
+        console.log('[Media] Camera + mic ready');
+      } catch (err) {
+        try {
+          localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          console.warn('[Media] Video failed, audio-only');
+        } catch (e) {
+          console.error('[Media] No camera/mic available');
+        }
+      }
+    }
+
+    function toggleMic() {
+      if (!localStream) return;
+      micEnabled = !micEnabled;
+      localStream.getAudioTracks().forEach(function(t) { t.enabled = micEnabled; });
+      document.getElementById('micBtn').classList.toggle('active', !micEnabled);
+    }
+    function toggleCam() {
+      if (!localStream) return;
+      camEnabled = !camEnabled;
+      localStream.getVideoTracks().forEach(function(t) { t.enabled = camEnabled; });
+      document.getElementById('camBtn').classList.toggle('active', !camEnabled);
+    }
+
+    // -- WebSocket -------------------------------------------
+    function connectWS() {
+      setStatus('Connecting...', true);
+      var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(protocol + '//' + location.host);
+
+      ws.onopen = function() {
+        reconnectAttempts = 0;
+        setStatus('Connected');
+        ws.send(JSON.stringify({ type: 'client-register', roomId: ROOM_ID, name: CLIENT_NAME }));
+        console.log('[WS] Connected, registered as ' + CLIENT_NAME);
+      };
+
+      ws.onmessage = function(event) {
+        var msg;
+        try { msg = JSON.parse(event.data); } catch(e) { return; }
+
+        switch (msg.type) {
+          case 'registered':
+            console.log('[WS] Registered in room ' + msg.roomId);
+            if (msg.iceServers) iceServers = msg.iceServers;
+            break;
+          case 'peer-joined':
+            console.log('[Call] Staff connected');
+            // Staff will send offer - we wait for it
+            break;
+          case 'offer':
+            console.log('[WebRTC] Received offer from staff');
+            if (msg.iceServers) iceServers = msg.iceServers;
+            handleOffer(msg);
+            break;
+          case 'answer':
+            console.log('[WebRTC] Received answer');
+            handleAnswer(msg);
+            break;
+          case 'ice-candidate':
+            handleIceCandidate(msg);
+            break;
+          case 'peer-left':
+            console.log('[Call] Staff disconnected');
+            endCall();
+            break;
+          case 'error':
+            console.warn('[WS] Error:', msg.message);
+            break;
+        }
+      };
+
+      ws.onclose = function() {
+        setStatus('Reconnecting...', true);
+        var delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), 10000);
+        reconnectAttempts++;
+        setTimeout(connectWS, delay);
+      };
+
+      ws.onerror = function() {};
+    }
+
+    // -- WebRTC Peer Connection ------------------------------
+    function createPeerConnection() {
+      var config = { iceServers: iceServers };
+      pc = new RTCPeerConnection(config);
+      console.log('[WebRTC] PeerConnection created with', iceServers.length, 'ICE servers');
+
+      // Add local tracks
+      if (localStream) {
+        localStream.getTracks().forEach(function(track) {
+          pc.addTrack(track, localStream);
+          console.log('[WebRTC] Added local track:', track.kind);
+        });
+      }
+
+      // Handle remote tracks (staff video + audio)
+      pc.ontrack = function(event) {
+        console.log('[WebRTC] Remote track:', event.track.kind);
+        var remoteVideo = document.getElementById('remoteVideo');
+        remoteVideo.srcObject = event.streams[0];
+        remoteVideo.play().catch(function() {
+          // Mobile autoplay needs user gesture
+          var handler = function() {
+            remoteVideo.play();
+            document.removeEventListener('click', handler);
+            document.removeEventListener('touchstart', handler);
+          };
+          document.addEventListener('click', handler);
+          document.addEventListener('touchstart', handler);
+        });
+      };
+
+      // Send ICE candidates via WebSocket
+      pc.onicecandidate = function(event) {
+        if (event.candidate && ws && ws.readyState === 1) {
+          ws.send(JSON.stringify({
+            type: 'ice-candidate',
+            candidate: event.candidate.candidate,
+            sdpMid: event.candidate.sdpMid,
+            sdpMLineIndex: event.candidate.sdpMLineIndex
+          }));
+        }
+      };
+
+      // Connection state monitoring
+      pc.oniceconnectionstatechange = function() {
+        console.log('[WebRTC] ICE state:', pc.iceConnectionState);
+        if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+          setStatus('In Call');
+        }
+        if (pc.iceConnectionState === 'failed') {
+          console.error('[WebRTC] ICE failed - restarting');
+          pc.restartIce();
+        }
+      };
+
+      pc.onconnectionstatechange = function() {
+        console.log('[WebRTC] State:', pc.connectionState);
+        if (pc.connectionState === 'failed') {
+          endCall();
+        }
+      };
+
+      return pc;
+    }
+
+    /** Handle offer from staff - create answer */
+    async function handleOffer(msg) {
+      if (!isInCall) {
+        isInCall = true;
+        document.getElementById('readyScreen').classList.add('hidden');
+        document.getElementById('videoContainer').classList.add('in-call');
+        createPeerConnection();
+        startAudioRecording();
+        startTimer();
+      }
+
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: msg.sdp }));
+        var answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        ws.send(JSON.stringify({ type: 'answer', sdp: answer.sdp }));
+        console.log('[WebRTC] Answer sent');
+      } catch (err) {
+        console.error('[WebRTC] handleOffer failed:', err);
+      }
+    }
+
+    async function handleAnswer(msg) {
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: msg.sdp }));
+      } catch (err) {
+        console.error('[WebRTC] handleAnswer failed:', err);
+      }
+    }
+
+    async function handleIceCandidate(msg) {
+      if (!pc) return;
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate({
+          candidate: msg.candidate,
+          sdpMid: msg.sdpMid,
+          sdpMLineIndex: msg.sdpMLineIndex
+        }));
+      } catch (err) {
+        if (err.name !== 'InvalidStateError') {
+          console.warn('[WebRTC] addIceCandidate failed:', err.message);
+        }
+      }
+    }
+
+    function endCall() {
+      isInCall = false;
+      if (pc) { pc.close(); pc = null; }
+      var rv = document.getElementById('remoteVideo');
+      rv.srcObject = null;
+      document.getElementById('readyScreen').classList.remove('hidden');
+      document.getElementById('videoContainer').classList.remove('in-call');
+      setStatus('Connected');
+      stopTimer();
+      stopAndUploadRecording();
+    }
+
+    function endCallButton() {
+      if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'hang-up' }));
+      endCall();
+    }
+
+    // -- Audio Recording -------------------------------------
+    function startAudioRecording() {
+      if (!localStream) return;
+      audioChunks = [];
+      try {
+        var audioStream = new MediaStream(localStream.getAudioTracks());
+        var mimeType = 'audio/webm;codecs=opus';
+        if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'audio/webm';
+        audioRecorder = new MediaRecorder(audioStream, { mimeType: mimeType, audioBitsPerSecond: 32000 });
+        audioRecorder.ondataavailable = function(e) {
+          if (e.data.size > 0) audioChunks.push(e.data);
+        };
+        audioRecorder.start(5000);
+        console.log('[Recording] Started');
+      } catch (err) {
+        console.error('[Recording] Failed:', err);
+      }
+    }
+
+    function stopAndUploadRecording() {
+      if (!audioRecorder || audioRecorder.state === 'inactive') return;
+      audioRecorder.onstop = function() {
+        if (audioChunks.length === 0) return;
+        var blob = new Blob(audioChunks, { type: 'audio/webm' });
+        console.log('[Recording] Uploading', (blob.size / 1024).toFixed(1) + 'KB');
+        fetch('/api/upload-recording/' + ROOM_ID + '/client', {
+          method: 'POST', body: blob,
+          headers: { 'Content-Type': 'audio/webm' }
+        }).then(function(r) { return r.json(); })
+          .then(function(d) { console.log('[Recording] Uploaded:', d.file); })
+          .catch(function(e) { console.error('[Recording] Upload failed:', e); });
+        audioChunks = [];
+      };
+      audioRecorder.stop();
+    }
+
+    // -- Timer -----------------------------------------------
+    function startTimer() {
+      if (timerInterval) return;
+      callStartTime = Date.now();
+      timerInterval = setInterval(function() {
+        var s = Math.floor((Date.now() - callStartTime) / 1000);
+        document.getElementById('callTimer').textContent =
+          String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
+      }, 1000);
+    }
+    function stopTimer() {
+      if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+      document.getElementById('callTimer').textContent = '00:00';
+    }
+
+    // -- UI Helpers ------------------------------------------
+    function setStatus(text, connecting) {
+      document.getElementById('statusText').textContent = text;
+      document.getElementById('statusPill').classList.toggle('connecting', !!connecting);
+    }
+
+    // Prevent navigation (tablet is pinned)
+    window.addEventListener('beforeunload', function(e) { e.preventDefault(); e.returnValue = ''; });
+    // Prevent pinch-zoom
+    document.addEventListener('touchmove', function(e) {
+      if (e.touches.length > 1) e.preventDefault();
+    }, { passive: false });
+
+    // -- Init ------------------------------------------------
+    (async function() {
+      await requestWakeLock();
+      await initMedia();
+      connectWS();
+    })();
+  </script>
+</body>
+</html>

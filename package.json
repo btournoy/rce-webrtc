@@ -1,0 +1,13 @@
+{
+  "name": "webrtc-chat",
+  "version": "1.0.0",
+  "description": "Lightweight WebRTC video chat with remote connectivity",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "tunnel": "npx -y localtunnel --port 3000"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

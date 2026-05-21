@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Video Call — WebRTC Chat by RCE</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #08080e;
+      --surface: #12121e;
+      --surface-2: #1a1a2e;
+      --surface-3: #222238;
+      --border: #2a2a42;
+      --text: #e8e8f0;
+      --text-muted: #7878a0;
+      --primary: #6366f1;
+      --primary-glow: rgba(99, 102, 241, 0.25);
+      --green: #22c55e;
+      --green-glow: rgba(34, 197, 94, 0.25);
+      --red: #ef4444;
+      --red-glow: rgba(239, 68, 68, 0.25);
+      --yellow: #eab308;
+      --radius: 16px;
+      --radius-sm: 10px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Video layout ────────────────────────── */
+    .video-container {
+      position: relative;
+      width: 100%;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+    }
+
+    .video-container video {
+      border-radius: 0;
+    }
+
+    #remoteVideo {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: #000;
+    }
+
+    #localVideo {
+      position: absolute;
+      bottom: 100px;
+      right: 24px;
+      width: 220px;
+      height: 165px;
+      object-fit: cover;
+      border-radius: var(--radius);
+      border: 2px solid var(--border);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+      z-index: 10;
+      cursor: grab;
+      transition: box-shadow 0.2s;
+    }
+
+    #localVideo:hover {
+      box-shadow: 0 8px 40px rgba(0,0,0,0.8);
+    }
+
+    /* ── Top bar ─────────────────────────────── */
+    .top-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 1.5rem;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%);
+      z-index: 20;
+    }
+
+    .room-info {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .room-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 0.75rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      letter-spacing: 0.05em;
+    }
+
+    .room-badge .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .call-timer {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .copy-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.4rem 0.75rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .copy-btn:hover {
+      border-color: var(--primary);
+      color: var(--text);
+    }
+
+    .copy-btn svg { width: 14px; height: 14px; }
+
+    /* ── Controls bar ────────────────────────── */
+    .controls {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      padding: 1.5rem;
+      background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%);
+      z-index: 20;
+    }
+
+    .ctrl-btn {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .ctrl-btn:hover {
+      background: var(--surface-3);
+      transform: scale(1.05);
+    }
+
+    .ctrl-btn svg {
+      width: 22px;
+      height: 22px;
+    }
+
+    .ctrl-btn.active {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: rgba(239, 68, 68, 0.4);
+      color: var(--red);
+    }
+
+    .ctrl-btn.hang-up {
+      width: 64px;
+      height: 52px;
+      border-radius: 999px;
+      background: var(--red);
+      border-color: var(--red);
+      color: white;
+      box-shadow: 0 4px 16px var(--red-glow);
+    }
+
+    .ctrl-btn.hang-up:hover {
+      background: #dc2626;
+      transform: scale(1.05);
+    }
+
+    /* ── Waiting overlay ─────────────────────── */
+    .waiting-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      z-index: 15;
+      transition: opacity 0.5s ease;
+    }
+
+    .waiting-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .waiting-spinner {
+      width: 48px;
+      height: 48px;
+      border: 3px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 1.5rem;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .waiting-text {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .waiting-sub {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-bottom: 2rem;
+    }
+
+    .share-link {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      max-width: 400px;
+    }
+
+    .share-link input {
+      flex: 1;
+      background: none;
+      border: none;
+      color: var(--text);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.85rem;
+      outline: none;
+      min-width: 0;
+    }
+
+    .share-link button {
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      border: none;
+      background: var(--primary);
+      color: white;
+      font-family: inherit;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .share-link button:hover {
+      background: var(--primary-hover);
+    }
+
+    /* ── Chat panel ──────────────────────────── */
+    .chat-panel {
+      position: absolute;
+      top: 0;
+      right: -380px;
+      width: 360px;
+      height: 100%;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      z-index: 25;
+      display: flex;
+      flex-direction: column;
+      transition: right 0.3s ease;
+    }
+
+    .chat-panel.open {
+      right: 0;
+    }
+
+    .chat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .chat-header h3 {
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    .chat-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 0.25rem;
+    }
+
+    .chat-close:hover { color: var(--text); }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .chat-msg {
+      max-width: 80%;
+      padding: 0.6rem 0.9rem;
+      border-radius: 12px 12px 12px 4px;
+      font-size: 0.85rem;
+      line-height: 1.4;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+    }
+
+    .chat-msg.mine {
+      align-self: flex-end;
+      background: rgba(99, 102, 241, 0.15);
+      border-color: rgba(99, 102, 241, 0.3);
+      border-radius: 12px 12px 4px 12px;
+    }
+
+    .chat-msg .time {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+
+    .chat-input {
+      display: flex;
+      gap: 0.5rem;
+      padding: 1rem 1.25rem;
+      border-top: 1px solid var(--border);
+    }
+
+    .chat-input input {
+      flex: 1;
+      padding: 0.65rem 0.9rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.85rem;
+      outline: none;
+    }
+
+    .chat-input input:focus {
+      border-color: var(--primary);
+    }
+
+    .chat-input button {
+      padding: 0.65rem 1rem;
+      border-radius: 8px;
+      border: none;
+      background: var(--primary);
+      color: white;
+      font-family: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .chat-input button:hover {
+      background: var(--primary-hover);
+    }
+
+    /* ── Connection quality ───────────────────── */
+    .connection-quality {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .quality-bar {
+      width: 3px;
+      border-radius: 2px;
+      background: var(--green);
+      transition: all 0.3s;
+    }
+
+    .quality-bar:nth-child(1) { height: 6px; }
+    .quality-bar:nth-child(2) { height: 10px; }
+    .quality-bar:nth-child(3) { height: 14px; }
+
+    /* ── Toast ────────────────────────────────── */
+    .toast {
+      position: fixed;
+      top: 80px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-20px);
+      padding: 0.65rem 1.25rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      z-index: 100;
+      opacity: 0;
+      transition: all 0.3s ease;
+      pointer-events: none;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* ── Transcript panel ─────────────────────── */
+    .transcript-panel {
+      position: absolute;
+      top: 0;
+      left: -400px;
+      width: 380px;
+      height: 100%;
+      background: rgba(18, 18, 30, 0.95);
+      backdrop-filter: blur(20px);
+      border-right: 1px solid var(--border);
+      z-index: 25;
+      display: flex;
+      flex-direction: column;
+      transition: left 0.3s ease;
+    }
+
+    .transcript-panel.open { left: 0; }
+
+    .transcript-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .transcript-header h3 { font-size: 0.9rem; font-weight: 600; }
+
+    .transcript-header .rec-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--red);
+      animation: pulse 1.5s ease-in-out infinite;
+      margin-right: 0.5rem;
+    }
+
+    .transcript-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .transcript-entry {
+      font-size: 0.82rem;
+      line-height: 1.5;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid rgba(42, 42, 66, 0.4);
+    }
+
+    .transcript-entry .speaker {
+      font-weight: 600;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.2rem;
+    }
+
+    .transcript-entry .speaker.staff { color: var(--primary); }
+    .transcript-entry .speaker.client { color: var(--green); }
+
+    .transcript-entry .time {
+      font-size: 0.6rem;
+      color: var(--text-muted);
+      float: right;
+      margin-top: 0.2rem;
+    }
+
+    .transcript-entry.interim {
+      opacity: 0.5;
+      font-style: italic;
+    }
+
+    .transcript-empty {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      text-align: center;
+      padding: 2rem;
+    }
+
+    /* ── Responsive ──────────────────────────── */
+    @media (max-width: 768px) {
+      #localVideo {
+        width: 140px;
+        height: 105px;
+        bottom: 90px;
+        right: 16px;
+      }
+
+      .chat-panel {
+        width: 100%;
+        right: -100%;
+      }
+
+      .transcript-panel {
+        width: 100%;
+        left: -100%;
+      }
+
+      .controls { gap: 0.75rem; padding: 1rem; }
+      .ctrl-btn { width: 46px; height: 46px; }
+      .ctrl-btn.hang-up { width: 56px; height: 46px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="video-container">
+    <video id="remoteVideo" autoplay playsinline></video>
+    <video id="localVideo" autoplay playsinline muted></video>
+
+    <!-- Waiting overlay -->
+    <div class="waiting-overlay" id="waitingOverlay">
+      <div class="waiting-spinner"></div>
+      <div class="waiting-text">Waiting for someone to join…</div>
+      <div class="waiting-sub">Share this link with the other person</div>
+      <div class="share-link">
+        <input id="shareUrl" readonly>
+        <button onclick="copyLink()">Copy Link</button>
+      </div>
+    </div>
+
+    <!-- Top bar -->
+    <div class="top-bar">
+      <div class="room-info">
+        <div class="room-badge">
+          <span class="dot"></span>
+          <span id="roomCode"></span>
+        </div>
+        <span class="call-timer" id="callTimer">00:00</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <div class="connection-quality" id="connQuality">
+          <div class="quality-bar"></div>
+          <div class="quality-bar"></div>
+          <div class="quality-bar"></div>
+        </div>
+        <span style="font-size: 0.75rem; font-weight: 600; color: rgba(255,255,255,0.4); letter-spacing: 0.05em;">WebRTC Chat by RCE</span>
+        <button class="copy-btn" onclick="copyLink()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+          Copy Link
+        </button>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button class="ctrl-btn" id="micBtn" onclick="toggleMic()" title="Toggle Microphone">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+          <line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+      </button>
+
+      <button class="ctrl-btn" id="camBtn" onclick="toggleCam()" title="Toggle Camera">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="23 7 16 12 23 17 23 7"/>
+          <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+        </svg>
+      </button>
+
+
+      <button class="ctrl-btn" id="transcriptBtn" onclick="toggleTranscript()" title="Live Transcript">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+          <polyline points="10 9 9 9 8 9"/>
+        </svg>
+      </button>
+
+      <button class="ctrl-btn" id="chatBtn" onclick="toggleChat()" title="Chat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+      </button>
+
+      <button class="ctrl-btn hang-up" onclick="hangUp()" title="End Call">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/>
+          <line x1="1" y1="1" x2="23" y2="23"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Chat panel -->
+  <div class="chat-panel" id="chatPanel">
+    <div class="chat-header">
+      <h3>Chat</h3>
+      <button class="chat-close" onclick="toggleChat()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="chat-messages" id="chatMessages"></div>
+    <div class="chat-input">
+      <input id="chatInput" type="text" placeholder="Type a message…" autocomplete="off">
+      <button onclick="sendChat()">Send</button>
+    </div>
+  </div>
+
+  <!-- Transcript panel -->
+  <div class="transcript-panel" id="transcriptPanel">
+    <div class="transcript-header">
+      <div style="display: flex; align-items: center;">
+        <span class="rec-dot"></span>
+        <h3>Live Transcript</h3>
+      </div>
+      <button class="chat-close" onclick="toggleTranscript()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="transcript-body" id="transcriptBody">
+      <div class="transcript-empty" id="transcriptEmpty">Transcript will appear here as you speak…</div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    /**
+     * ======================================================
+     *  STAFF (LAPTOP) - WebRTC Chat by RCE - Room View
+     * ======================================================
+     *
+     * Architecture: True WebRTC via RTCPeerConnection
+     *  - Signaling: WebSocket (offer/answer/ICE candidates)
+     *  - Media: WebRTC peer-to-peer (with coturn TURN relay on VPS)
+     *  - Recording: Client-side audio capture, uploaded post-call
+     *
+     * Why WebRTC over MediaRecorder+MSE:
+     *  - Adaptive bitrate built into the codec (smooth video)
+     *  - Jitter buffer (handles network variance)
+     *  - Echo cancellation, noise suppression (built in)
+     *  - Works reliably across all browsers
+     */
+
+    // -- State -----------------------------------------------
+    var roomId = window.location.pathname.slice(1);
+    var ws = null;               // WebSocket for signaling
+    var pc = null;               // RTCPeerConnection
+    var localStream = null;      // Local camera + mic
+    var audioRecorder = null;    // For recording our mic audio
+    var audioChunks = [];        // Recorded audio chunks
+    var iceServers = [];         // ICE servers from server (STUN/TURN)
+    var micEnabled = true;
+    var camEnabled = true;
+    var callStartTime = null;
+    var timerInterval = null;
+    var isInCall = false;
+
+    document.getElementById('roomCode').textContent = roomId;
+    document.getElementById('shareUrl').value = window.location.href;
+
+    // -- WebSocket Connection --------------------------------
+    /** Connect to signaling server */
+    function connectWS() {
+      var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(protocol + '//' + location.host);
+
+      ws.onopen = function() {
+        console.log('[WS] Connected, joining room', roomId);
+        ws.send(JSON.stringify({ type: 'join', roomId: roomId }));
+      };
+
+      ws.onmessage = function(event) {
+        var msg;
+        try { msg = JSON.parse(event.data); } catch(e) { return; }
+
+        switch (msg.type) {
+          case 'joined':
+            console.log('[WS] Joined room ' + msg.roomId + ' (peers: ' + msg.peerCount + ')');
+            // Store ICE servers from server (includes TURN credentials)
+            if (msg.iceServers) iceServers = msg.iceServers;
+            if (msg.isInitiator) {
+              console.log('[Call] Peer already present - initiating WebRTC');
+              startCall(true);
+            }
+            break;
+
+          case 'peer-joined':
+            console.log('[Call] Remote peer joined - initiating WebRTC');
+            showToast('Client connected');
+            startCall(true);
+            break;
+
+          case 'offer':
+            console.log('[WebRTC] Received offer');
+            handleOffer(msg);
+            break;
+
+          case 'answer':
+            console.log('[WebRTC] Received answer');
+            handleAnswer(msg);
+            break;
+
+          case 'ice-candidate':
+            handleIceCandidate(msg);
+            break;
+
+          case 'chat':
+            addChatMessage(msg.message, false, msg.timestamp);
+            break;
+
+          case 'transcript':
+            addTranscriptEntry(msg.speaker, msg.text, msg.timestamp);
+            break;
+
+          case 'peer-left':
+            console.log('[Call] Remote peer left');
+            showToast('Client disconnected');
+            endCall();
+            break;
+
+          case 'error':
+            console.error('[WS] Server error:', msg.message);
+            showToast(msg.message);
+            break;
+        }
+      };
+
+      ws.onclose = function() {
+        console.warn('[WS] Disconnected - reconnecting in 2s');
+        setTimeout(connectWS, 2000);
+      };
+
+      ws.onerror = function(err) {
+        console.error('[WS] Error');
+      };
+    }
+
+    // -- Local Media -----------------------------------------
+    /** Get camera + mic */
+    async function initMedia() {
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24 }, facingMode: 'user' },
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
+        document.getElementById('localVideo').srcObject = localStream;
+        console.log('[Media] Camera + mic ready');
+      } catch (err) {
+        console.error('[Media] getUserMedia failed:', err);
+        showToast('Camera/mic access denied');
+      }
+    }
+
+    // -- WebRTC Peer Connection ------------------------------
+    /**
+     * Create RTCPeerConnection and set up event handlers.
+     * This is the core of WebRTC - handles all media transport.
+     */
+    function createPeerConnection() {
+      var config = { iceServers: iceServers };
+      pc = new RTCPeerConnection(config);
+      console.log('[WebRTC] PeerConnection created with', iceServers.length, 'ICE servers');
+
+      // Add our local tracks (camera + mic) to the connection
+      if (localStream) {
+        localStream.getTracks().forEach(function(track) {
+          pc.addTrack(track, localStream);
+          console.log('[WebRTC] Added local track:', track.kind);
+        });
+      }
+
+      // Handle incoming remote tracks (client's video + audio)
+      pc.ontrack = function(event) {
+        console.log('[WebRTC] Remote track received:', event.track.kind);
+        var remoteVideo = document.getElementById('remoteVideo');
+        remoteVideo.srcObject = event.streams[0];
+        remoteVideo.play().catch(function() {
+          console.warn('[WebRTC] Autoplay blocked - click to play');
+          showToast('Click anywhere to hear audio');
+          var handler = function() {
+            remoteVideo.play();
+            document.removeEventListener('click', handler);
+          };
+          document.addEventListener('click', handler);
+        });
+      };
+
+      // Send ICE candidates to the remote peer via WebSocket
+      pc.onicecandidate = function(event) {
+        if (event.candidate && ws && ws.readyState === 1) {
+          ws.send(JSON.stringify({
+            type: 'ice-candidate',
+            candidate: event.candidate.candidate,
+            sdpMid: event.candidate.sdpMid,
+            sdpMLineIndex: event.candidate.sdpMLineIndex
+          }));
+        }
+      };
+
+      // Monitor connection state for logging/recovery
+      pc.oniceconnectionstatechange = function() {
+        console.log('[WebRTC] ICE state:', pc.iceConnectionState);
+        switch (pc.iceConnectionState) {
+          case 'connected':
+          case 'completed':
+            showToast('Connected!');
+            break;
+          case 'failed':
+            console.error('[WebRTC] ICE failed - attempting restart');
+            pc.restartIce();
+            break;
+          case 'disconnected':
+            console.warn('[WebRTC] ICE disconnected - waiting for recovery');
+            break;
+        }
+      };
+
+      pc.onconnectionstatechange = function() {
+        console.log('[WebRTC] Connection state:', pc.connectionState);
+        if (pc.connectionState === 'failed') {
+          console.error('[WebRTC] Connection failed completely');
+          showToast('Connection lost - reconnecting...');
+          endCall();
+          setTimeout(function() { startCall(true); }, 2000);
+        }
+      };
+
+      return pc;
+    }
+
+    /**
+     * Start a call - create offer if we're the initiator.
+     * The responder waits for an offer via handleOffer().
+     */
+    async function startCall(asInitiator) {
+      if (isInCall) return;
+      isInCall = true;
+      document.getElementById('waitingOverlay').classList.add('hidden');
+
+      createPeerConnection();
+      startAudioRecording();
+      startTimer();
+
+      if (asInitiator) {
+        try {
+          var offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          ws.send(JSON.stringify({ type: 'offer', sdp: offer.sdp }));
+          console.log('[WebRTC] Offer sent');
+        } catch (err) {
+          console.error('[WebRTC] createOffer failed:', err);
+        }
+      }
+    }
+
+    /** Handle an incoming offer from the remote peer */
+    async function handleOffer(msg) {
+      if (!isInCall) {
+        isInCall = true;
+        document.getElementById('waitingOverlay').classList.add('hidden');
+        createPeerConnection();
+        startAudioRecording();
+        startTimer();
+      }
+
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: msg.sdp }));
+        var answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        ws.send(JSON.stringify({ type: 'answer', sdp: answer.sdp }));
+        console.log('[WebRTC] Answer sent');
+      } catch (err) {
+        console.error('[WebRTC] handleOffer failed:', err);
+      }
+    }
+
+    /** Handle an incoming answer to our offer */
+    async function handleAnswer(msg) {
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: msg.sdp }));
+        console.log('[WebRTC] Remote description set');
+      } catch (err) {
+        console.error('[WebRTC] handleAnswer failed:', err);
+      }
+    }
+
+    /** Handle an incoming ICE candidate */
+    async function handleIceCandidate(msg) {
+      if (!pc) return;
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate({
+          candidate: msg.candidate,
+          sdpMid: msg.sdpMid,
+          sdpMLineIndex: msg.sdpMLineIndex
+        }));
+      } catch (err) {
+        // Ignore candidates that arrive before remote description
+        if (err.name !== 'InvalidStateError') {
+          console.warn('[WebRTC] addIceCandidate failed:', err.message);
+        }
+      }
+    }
+
+    /** End the call - clean up WebRTC and recording */
+    function endCall() {
+      isInCall = false;
+      if (pc) {
+        pc.close();
+        pc = null;
+        console.log('[WebRTC] PeerConnection closed');
+      }
+      var rv = document.getElementById('remoteVideo');
+      rv.srcObject = null;
+      document.getElementById('waitingOverlay').classList.remove('hidden');
+      stopTimer();
+      stopAndUploadRecording();
+    }
+
+    // -- Audio Recording (for post-call transcription) -------
+    /** Record our own mic audio for server-side transcription */
+    function startAudioRecording() {
+      if (!localStream) return;
+      audioChunks = [];
+      try {
+        // Audio-only recording (no video = smaller files)
+        var audioStream = new MediaStream(localStream.getAudioTracks());
+        var mimeType = 'audio/webm;codecs=opus';
+        if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'audio/webm';
+        audioRecorder = new MediaRecorder(audioStream, { mimeType: mimeType, audioBitsPerSecond: 32000 });
+        audioRecorder.ondataavailable = function(e) {
+          if (e.data.size > 0) audioChunks.push(e.data);
+        };
+        audioRecorder.start(5000); // 5s chunks
+        console.log('[Recording] Audio recording started');
+      } catch (err) {
+        console.error('[Recording] Failed to start:', err);
+      }
+    }
+
+    /** Stop recording and upload to server */
+    function stopAndUploadRecording() {
+      if (!audioRecorder || audioRecorder.state === 'inactive') return;
+      audioRecorder.onstop = function() {
+        if (audioChunks.length === 0) return;
+        var blob = new Blob(audioChunks, { type: 'audio/webm' });
+        console.log('[Recording] Uploading', (blob.size / 1024).toFixed(1) + 'KB');
+        fetch('/api/upload-recording/' + roomId + '/staff', {
+          method: 'POST',
+          body: blob,
+          headers: { 'Content-Type': 'audio/webm' }
+        }).then(function(r) { return r.json(); })
+          .then(function(d) { console.log('[Recording] Uploaded:', d.file); })
+          .catch(function(e) { console.error('[Recording] Upload failed:', e); });
+        audioChunks = [];
+      };
+      audioRecorder.stop();
+    }
+
+    // -- Controls --------------------------------------------
+    function toggleMic() {
+      if (!localStream) return;
+      micEnabled = !micEnabled;
+      localStream.getAudioTracks().forEach(function(t) { t.enabled = micEnabled; });
+      document.getElementById('micBtn').classList.toggle('active', !micEnabled);
+      console.log('[Controls] Mic ' + (micEnabled ? 'unmuted' : 'muted'));
+    }
+
+    function toggleCam() {
+      if (!localStream) return;
+      camEnabled = !camEnabled;
+      localStream.getVideoTracks().forEach(function(t) { t.enabled = camEnabled; });
+      document.getElementById('camBtn').classList.toggle('active', !camEnabled);
+      console.log('[Controls] Camera ' + (camEnabled ? 'on' : 'off'));
+    }
+
+    function hangUp() {
+      if (ws) ws.send(JSON.stringify({ type: 'hang-up' }));
+      endCall();
+      if (localStream) localStream.getTracks().forEach(function(t) { t.stop(); });
+      window.location.href = '/';
+    }
+
+    // -- Chat ------------------------------------------------
+    function toggleChat() {
+      document.getElementById('chatPanel').classList.toggle('open');
+    }
+    function sendChat() {
+      var input = document.getElementById('chatInput');
+      var msg = input.value.trim();
+      if (!msg || !ws) return;
+      ws.send(JSON.stringify({ type: 'chat', message: msg }));
+      addChatMessage(msg, true, Date.now());
+      input.value = '';
+    }
+    function addChatMessage(text, isMine, timestamp) {
+      var container = document.getElementById('chatMessages');
+      var div = document.createElement('div');
+      div.className = 'chat-msg ' + (isMine ? 'mine' : '');
+      var time = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      div.innerHTML = '<div>' + escapeHtml(text) + '</div><div class="time">' + time + '</div>';
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+    document.getElementById('chatInput').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') sendChat();
+    });
+
+    // -- Transcript Panel (post-call) ------------------------
+    function toggleTranscript() {
+      document.getElementById('transcriptPanel').classList.toggle('open');
+    }
+    function addTranscriptEntry(speaker, text, timestamp) {
+      var body = document.getElementById('transcriptBody');
+      var empty = document.getElementById('transcriptEmpty');
+      if (empty) empty.remove();
+      var div = document.createElement('div');
+      div.className = 'transcript-entry';
+      var time = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      var cls = speaker.toLowerCase() === 'staff' ? 'staff' : 'client';
+      div.innerHTML = '<span class="time">' + time + '</span><div class="speaker ' + cls + '">' + escapeHtml(speaker) + '</div><div>' + escapeHtml(text) + '</div>';
+      body.appendChild(div);
+      body.scrollTop = body.scrollHeight;
+    }
+
+    // -- Utilities -------------------------------------------
+    function copyLink() {
+      navigator.clipboard.writeText(window.location.href).then(function() { showToast('Link copied'); });
+    }
+    function showToast(msg) {
+      var toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(function() { toast.classList.remove('show'); }, 2500);
+    }
+    function escapeHtml(text) {
+      var div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+    function startTimer() {
+      if (timerInterval) return;
+      callStartTime = Date.now();
+      timerInterval = setInterval(function() {
+        var s = Math.floor((Date.now() - callStartTime) / 1000);
+        document.getElementById('callTimer').textContent =
+          String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
+      }, 1000);
+    }
+    function stopTimer() {
+      if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+      document.getElementById('callTimer').textContent = '00:00';
+    }
+
+    // -- Draggable local video --------------------------------
+    var localVideo = document.getElementById('localVideo');
+    var isDragging = false, dragOffsetX, dragOffsetY;
+    localVideo.addEventListener('mousedown', function(e) {
+      isDragging = true;
+      dragOffsetX = e.clientX - localVideo.getBoundingClientRect().left;
+      dragOffsetY = e.clientY - localVideo.getBoundingClientRect().top;
+      localVideo.style.cursor = 'grabbing'; localVideo.style.transition = 'none';
+    });
+    document.addEventListener('mousemove', function(e) {
+      if (!isDragging) return;
+      localVideo.style.left = (e.clientX - dragOffsetX) + 'px';
+      localVideo.style.top = (e.clientY - dragOffsetY) + 'px';
+      localVideo.style.right = 'auto'; localVideo.style.bottom = 'auto';
+    });
+    document.addEventListener('mouseup', function() {
+      isDragging = false; localVideo.style.cursor = 'grab'; localVideo.style.transition = 'box-shadow 0.2s';
+    });
+    localVideo.addEventListener('touchstart', function(e) {
+      var t = e.touches[0]; isDragging = true;
+      dragOffsetX = t.clientX - localVideo.getBoundingClientRect().left;
+      dragOffsetY = t.clientY - localVideo.getBoundingClientRect().top;
+      localVideo.style.transition = 'none';
+    });
+    document.addEventListener('touchmove', function(e) {
+      if (!isDragging) return; var t = e.touches[0];
+      localVideo.style.left = (t.clientX - dragOffsetX) + 'px';
+      localVideo.style.top = (t.clientY - dragOffsetY) + 'px';
+      localVideo.style.right = 'auto'; localVideo.style.bottom = 'auto';
+    });
+    document.addEventListener('touchend', function() {
+      isDragging = false; localVideo.style.transition = 'box-shadow 0.2s';
+    });
+
+    // -- Init -------------------------------------------------
+    (async function() {
+      await initMedia();
+      connectWS();
+    })();
+  </script>
+</body>
+</html>
