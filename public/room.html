@@ -980,11 +980,11 @@
       stopAndUploadRecording();
     }
 
-    // -- Speech Recognition (staff transcript capture) -------
+    // -- Speech Recognition (staff voice) --------------------
     /**
-     * Capture staff's speech via browser SpeechRecognition.
-     * Chrome desktop fully supports this. Sends final results
-     * to server as 'transcript' messages for storage and relay.
+     * Capture staff's speech via Chrome's free SpeechRecognition API.
+     * Labels all results as 'Staff'. The client tablet runs its own
+     * SpeechRecognition labeled as 'Client' — simple and accurate.
      */
     function startSpeechRecognition() {
       var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1010,8 +1010,7 @@
                   speaker: 'Staff',
                   isFinal: true
                 }));
-                console.log('[Speech] Captured:', text.substring(0, 60));
-                // Also show in local transcript panel
+                console.log('[Speech] Staff:', text.substring(0, 60));
                 addTranscriptEntry('Staff', text, Date.now());
               }
             }

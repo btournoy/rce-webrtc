@@ -478,6 +478,7 @@
     var reconnectAttempts = 0;
     var wakeLock = null;
     var isInCall = false;
+    var speechRecognition = null;
 
     // -- Wake Lock -------------------------------------------
     async function requestWakeLock() {
@@ -657,6 +658,7 @@
         document.getElementById('videoContainer').classList.add('in-call');
         createPeerConnection();
         startAudioRecording();
+        startSpeechRecognition();
         startTimer();
       }
 
@@ -703,6 +705,7 @@
       document.getElementById('videoContainer').classList.remove('in-call');
       setStatus('Connected');
       stopTimer();
+      stopSpeechRecognition();
       stopAndUploadRecording();
     }
 
@@ -747,6 +750,77 @@
       audioRecorder.stop();
     }
 
+    // -- Speech Recognition (client voice) --------------------
+    /**
+     * Capture client's speech via Chrome's free SpeechRecognition API.
+     * Labels all results as the client name. Staff laptop runs its own
+     * SpeechRecognition labeled as 'Staff'. $0 cost, built into Chrome.
+     */
+    function startSpeechRecognition() {
+      var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) {
+        console.warn('[Speech] Not supported in this browser');
+        return;
+      }
+      try {
+        speechRecognition = new SR();
+        speechRecognition.continuous = true;
+        speechRecognition.interimResults = false;
+        speechRecognition.lang = 'en-US';
+        speechRecognition.maxAlternatives = 1;
+
+        speechRecognition.onresult = function(event) {
+          for (var i = event.resultIndex; i < event.results.length; i++) {
+            if (event.results[i].isFinal) {
+              var text = event.results[i][0].transcript.trim();
+              if (text && ws && ws.readyState === 1) {
+                ws.send(JSON.stringify({
+                  type: 'transcript',
+                  text: text,
+                  speaker: CLIENT_NAME,
+                  isFinal: true
+                }));
+                console.log('[Speech] Client:', text.substring(0, 50));
+              }
+            }
+          }
+        };
+
+        speechRecognition.onerror = function(event) {
+          if (event.error === 'no-speech') return;
+          console.warn('[Speech] Error:', event.error);
+          if (isInCall && event.error !== 'not-allowed') {
+            setTimeout(function() {
+              if (isInCall) startSpeechRecognition();
+            }, 1000);
+          }
+        };
+
+        speechRecognition.onend = function() {
+          if (isInCall) {
+            setTimeout(function() {
+              if (isInCall) {
+                try { speechRecognition.start(); }
+                catch(e) { console.warn('[Speech] Restart failed:', e.message); }
+              }
+            }, 500);
+          }
+        };
+
+        speechRecognition.start();
+        console.log('[Speech] Client recognition started');
+      } catch (err) {
+        console.error('[Speech] Failed to start:', err);
+      }
+    }
+
+    function stopSpeechRecognition() {
+      if (speechRecognition) {
+        try { speechRecognition.stop(); } catch(e) {}
+        speechRecognition = null;
+        console.log('[Speech] Recognition stopped');
+      }
+    }
 
     // -- Timer -----------------------------------------------
     function startTimer() {
