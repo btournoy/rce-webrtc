@@ -705,6 +705,8 @@
     var localStream = null;      // Local camera + mic
     var audioRecorder = null;    // For recording our mic audio
     var audioChunks = [];        // Recorded audio chunks
+    var remoteStream = null;     // Remote audio/video from client
+    var audioContext = null;     // AudioContext for mixing streams
     var iceServers = [];         // ICE servers from server (STUN/TURN)
     var micEnabled = true;
     var camEnabled = true;
@@ -830,6 +832,7 @@
       // Handle incoming remote tracks (client's video + audio)
       pc.ontrack = function(event) {
         console.log('[WebRTC] Remote track received:', event.track.kind);
+        remoteStream = event.streams[0]; // Store for audio mixing
         var remoteVideo = document.getElementById('remoteVideo');
         remoteVideo.srcObject = event.streams[0];
         remoteVideo.play().catch(function() {
@@ -1052,23 +1055,65 @@
     }
 
     // -- Audio Recording (for post-call transcription) -------
-    /** Record our own mic audio for server-side transcription */
+    /**
+     * Record BOTH sides of the conversation using Web Audio API.
+     * Mixes local mic + remote WebRTC audio into one stream.
+     * Only the staff laptop does this — tablet doesn't need to.
+     */
     function startAudioRecording() {
       if (!localStream) return;
       audioChunks = [];
       try {
-        // Audio-only recording (no video = smaller files)
-        var audioStream = new MediaStream(localStream.getAudioTracks());
+        // Create AudioContext to mix both audio streams
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        var destination = audioContext.createMediaStreamDestination();
+
+        // Add local mic audio
+        var localSource = audioContext.createMediaStreamSource(
+          new MediaStream(localStream.getAudioTracks())
+        );
+        localSource.connect(destination);
+        console.log('[Recording] Local mic connected to mixer');
+
+        // Add remote audio (client's voice via WebRTC)
+        if (remoteStream && remoteStream.getAudioTracks().length > 0) {
+          var remoteSource = audioContext.createMediaStreamSource(
+            new MediaStream(remoteStream.getAudioTracks())
+          );
+          remoteSource.connect(destination);
+          console.log('[Recording] Remote audio connected to mixer');
+        } else {
+          console.warn('[Recording] No remote audio yet — will capture mic only');
+        }
+
+        // Record the mixed stream (both sides in one file)
         var mimeType = 'audio/webm;codecs=opus';
         if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'audio/webm';
-        audioRecorder = new MediaRecorder(audioStream, { mimeType: mimeType, audioBitsPerSecond: 32000 });
+        audioRecorder = new MediaRecorder(destination.stream, {
+          mimeType: mimeType,
+          audioBitsPerSecond: 64000 // Higher quality for two voices
+        });
         audioRecorder.ondataavailable = function(e) {
           if (e.data.size > 0) audioChunks.push(e.data);
         };
         audioRecorder.start(5000); // 5s chunks
-        console.log('[Recording] Audio recording started');
+        console.log('[Recording] Combined audio recording started');
       } catch (err) {
         console.error('[Recording] Failed to start:', err);
+        // Fallback: record mic only
+        try {
+          var audioStream = new MediaStream(localStream.getAudioTracks());
+          var mimeType = 'audio/webm;codecs=opus';
+          if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'audio/webm';
+          audioRecorder = new MediaRecorder(audioStream, { mimeType: mimeType, audioBitsPerSecond: 32000 });
+          audioRecorder.ondataavailable = function(e) {
+            if (e.data.size > 0) audioChunks.push(e.data);
+          };
+          audioRecorder.start(5000);
+          console.log('[Recording] Fallback: mic-only recording started');
+        } catch (e2) {
+          console.error('[Recording] Fallback also failed:', e2);
+        }
       }
     }
 
