@@ -711,6 +711,7 @@
     var callStartTime = null;
     var timerInterval = null;
     var isInCall = false;
+    var speechRecognition = null; // SpeechRecognition for transcript
 
     document.getElementById('roomCode').textContent = roomId;
     document.getElementById('shareUrl').value = window.location.href;
@@ -896,6 +897,7 @@
 
       createPeerConnection();
       startAudioRecording();
+      startSpeechRecognition();
       startTimer();
 
       if (asInitiator) {
@@ -917,6 +919,7 @@
         document.getElementById('waitingOverlay').classList.add('hidden');
         createPeerConnection();
         startAudioRecording();
+        startSpeechRecognition();
         startTimer();
       }
 
@@ -970,7 +973,82 @@
       rv.srcObject = null;
       document.getElementById('waitingOverlay').classList.remove('hidden');
       stopTimer();
+      stopSpeechRecognition();
       stopAndUploadRecording();
+    }
+
+    // -- Speech Recognition (staff transcript capture) -------
+    /**
+     * Capture staff's speech via browser SpeechRecognition.
+     * Chrome desktop fully supports this. Sends final results
+     * to server as 'transcript' messages for storage and relay.
+     */
+    function startSpeechRecognition() {
+      var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) {
+        console.warn('[Speech] Not supported in this browser');
+        return;
+      }
+      try {
+        speechRecognition = new SR();
+        speechRecognition.continuous = true;
+        speechRecognition.interimResults = false;
+        speechRecognition.lang = 'en-US';
+        speechRecognition.maxAlternatives = 1;
+
+        speechRecognition.onresult = function(event) {
+          for (var i = event.resultIndex; i < event.results.length; i++) {
+            if (event.results[i].isFinal) {
+              var text = event.results[i][0].transcript.trim();
+              if (text && ws && ws.readyState === 1) {
+                ws.send(JSON.stringify({
+                  type: 'transcript',
+                  text: text,
+                  speaker: 'Staff',
+                  isFinal: true
+                }));
+                console.log('[Speech] Captured:', text.substring(0, 60));
+                // Also show in local transcript panel
+                addTranscriptEntry('Staff', text, Date.now());
+              }
+            }
+          }
+        };
+
+        speechRecognition.onerror = function(event) {
+          if (event.error === 'no-speech') return;
+          console.warn('[Speech] Error:', event.error);
+          if (isInCall && event.error !== 'not-allowed') {
+            setTimeout(function() {
+              if (isInCall) startSpeechRecognition();
+            }, 1000);
+          }
+        };
+
+        speechRecognition.onend = function() {
+          if (isInCall) {
+            setTimeout(function() {
+              if (isInCall) {
+                try { speechRecognition.start(); }
+                catch(e) { console.warn('[Speech] Restart failed:', e.message); }
+              }
+            }, 500);
+          }
+        };
+
+        speechRecognition.start();
+        console.log('[Speech] Staff recognition started');
+      } catch (err) {
+        console.error('[Speech] Failed to start:', err);
+      }
+    }
+
+    function stopSpeechRecognition() {
+      if (speechRecognition) {
+        try { speechRecognition.stop(); } catch(e) {}
+        speechRecognition = null;
+        console.log('[Speech] Recognition stopped');
+      }
     }
 
     // -- Audio Recording (for post-call transcription) -------
